@@ -1,0 +1,204 @@
+{
+  "Comment": "Production Enterprise RAG Ingestion Pipeline: Extract, PII Redact, Chunk, Titan Embeddings v2, and Aurora pgvector Upsert",
+  "StartAt": "ExtractDocument",
+  "States": {
+    "ExtractDocument": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "action": "extract",
+          "bucket.$": "$.detail.bucket.name",
+          "key.$": "$.detail.object.key"
+        }
+      },
+      "ResultSelector": {
+        "document_id.$": "$.Payload.document_id",
+        "raw_text.$": "$.Payload.raw_text",
+        "metadata.$": "$.Payload.metadata",
+        "source_s3_uri.$": "$.Payload.source_s3_uri"
+      },
+      "ResultPath": "$.extraction_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleIngestionFailure"
+        }
+      ],
+      "Next": "RedactPII"
+    },
+    "RedactPII": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "action": "redact_pii",
+          "document_id.$": "$.extraction_result.document_id",
+          "text.$": "$.extraction_result.raw_text",
+          "metadata.$": "$.extraction_result.metadata"
+        }
+      },
+      "ResultSelector": {
+        "redacted_text.$": "$.Payload.redacted_text",
+        "pii_entities_detected.$": "$.Payload.pii_entities_detected"
+      },
+      "ResultPath": "$.pii_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleIngestionFailure"
+        }
+      ],
+      "Next": "ChunkDocument"
+    },
+    "ChunkDocument": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "action": "chunk",
+          "document_id.$": "$.extraction_result.document_id",
+          "text.$": "$.pii_result.redacted_text",
+          "metadata.$": "$.extraction_result.metadata"
+        }
+      },
+      "ResultSelector": {
+        "chunks.$": "$.Payload.chunks",
+        "total_chunks.$": "$.Payload.total_chunks"
+      },
+      "ResultPath": "$.chunk_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleIngestionFailure"
+        }
+      ],
+      "Next": "GenerateEmbeddings"
+    },
+    "GenerateEmbeddings": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "action": "generate_embeddings",
+          "document_id.$": "$.extraction_result.document_id",
+          "chunks.$": "$.chunk_result.chunks"
+        }
+      },
+      "ResultSelector": {
+        "embedded_chunks.$": "$.Payload.embedded_chunks",
+        "model_id.$": "$.Payload.model_id"
+      },
+      "ResultPath": "$.embedding_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Bedrock.ThrottlingException",
+            "Bedrock.ProvisionedThroughputExceededException",
+            "Bedrock.InternalServerException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 5,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleIngestionFailure"
+        }
+      ],
+      "Next": "StoreVectorsInAurora"
+    },
+    "StoreVectorsInAurora": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "action": "store_vectors",
+          "document_id.$": "$.extraction_result.document_id",
+          "source_s3_uri.$": "$.extraction_result.source_s3_uri",
+          "embedded_chunks.$": "$.embedding_result.embedded_chunks",
+          "metadata.$": "$.extraction_result.metadata"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status",
+        "chunks_indexed.$": "$.Payload.chunks_indexed",
+        "document_id.$": "$.Payload.document_id"
+      },
+      "ResultPath": "$.storage_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 4,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleIngestionFailure"
+        }
+      ],
+      "Next": "IngestionSucceeded"
+    },
+    "IngestionSucceeded": {
+      "Type": "Succeed"
+    },
+    "HandleIngestionFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "${IngestionDLQUrl}",
+        "MessageBody": {
+          "status": "FAILED",
+          "error.$": "$.error",
+          "document.$": "$.detail"
+        }
+      },
+      "Next": "IngestionFailed"
+    },
+    "IngestionFailed": {
+      "Type": "Fail",
+      "Error": "IngestionPipelineError",
+      "Cause": "Document processing failed. Detailed error routed to SQS DLQ."
+    }
+  }
+}

@@ -1,0 +1,38 @@
+services:
+  # Aurora PostgreSQL with pgvector emulation for local development
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ent-rag-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: enterpriserag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/db_init/schema.sql:/docker-entrypoint-initdb.d/init-pgvector.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d enterpriserag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ElastiCache Redis emulation for Semantic Caching
+  redis:
+    image: redis:7-alpine
+    container_name: ent-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
