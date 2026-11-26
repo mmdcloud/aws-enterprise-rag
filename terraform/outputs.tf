@@ -35,5 +35,5 @@ output "bedrock_guardrail_id" {
 
 output "cloudwatch_dashboard_name" {
   description = "Name of the CloudWatch operational dashboard"
-  value       = module.monitoring.dashboard_name
+  value       = module.rag_dashboard.dashboard_name
 }
