@@ -103,7 +103,29 @@ module "lambda_sg" {
   name          = "${var.project_name}-${var.environment}-lambda-sg"
   vpc_id        = module.vpc.vpc_id
   ingress_rules = []
-  egress_rules  = []
+  egress_rules = [
+    {
+      description = "Allow outbound to Aurora PostgreSQL"
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+    },
+    {
+      description = "Allow outbound to ElastiCache Redis"
+      from_port   = 6379
+      to_port     = 6379
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+    },
+    {
+      description = "Allow outbound HTTPS to VPC Interface Endpoints"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+    }
+  ]
 
   tags = {
     Name = "${var.project_name}-${var.environment}-lambda-sg"
@@ -209,37 +231,6 @@ module "vpc_endpoints_sg" {
   }
 }
 
-# --- Lambda Egress Rules (Restricted to Internal Services Only) ---
-resource "aws_security_group_rule" "lambda_to_aurora" {
-  type                     = "egress"
-  description              = "Allow outbound to Aurora PostgreSQL"
-  from_port                = 5432
-  to_port                  = 5432
-  protocol                 = "tcp"
-  security_group_id        = module.lambda_sg.id
-  source_security_group_id = module.aurora_sg.id
-}
-
-resource "aws_security_group_rule" "lambda_to_redis" {
-  type                     = "egress"
-  description              = "Allow outbound to ElastiCache Redis"
-  from_port                = 6379
-  to_port                  = 6379
-  protocol                 = "tcp"
-  security_group_id        = module.lambda_sg.id
-  source_security_group_id = module.elasticache_sg.id
-}
-
-resource "aws_security_group_rule" "lambda_to_vpce" {
-  type                     = "egress"
-  description              = "Allow outbound HTTPS to VPC Interface Endpoints"
-  from_port                = 443
-  to_port                  = 443
-  protocol                 = "tcp"
-  security_group_id        = module.lambda_sg.id
-  source_security_group_id = module.vpc_endpoints_sg.id
-}
-
 
 # module "security" {
 #   source       = "./modules/security"
@@ -336,10 +327,130 @@ module "elasticache_redis" {
 
 # 6. Security & Governance: Bedrock Guardrails (Prompt Injection & Topic Defense)
 module "bedrock_guardrails" {
-  source       = "./modules/bedrock_guardrails"
-  project_name = var.project_name
-  environment  = var.environment
-  kms_key_arn  = module.compute_logs_kms.arn
+  source = "./modules/bedrock/guardrail"
+
+  name                      = "${var.project_name}-${var.environment}-guardrail"
+  description               = "Production Bedrock Guardrail with prompt injection defense, PII masking, and topic filtering"
+  blocked_input_messaging   = "I am unable to process this request because it violated the enterprise safety and security policy."
+  blocked_outputs_messaging = "The generated response was withheld in accordance with enterprise data protection and compliance guidelines."
+
+  # 1. Content Policy Config: Defense against prompt injection, jailbreaks, and harmful content
+  content_filters = [
+    {
+      type            = "PROMPT_ATTACK"
+      input_strength  = "HIGH"
+      output_strength = "NONE"
+    },
+    {
+      type            = "SEXUAL"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    },
+    {
+      type            = "VIOLENCE"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    },
+    {
+      type            = "HATE"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    },
+    {
+      type            = "INSULTS"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    },
+    {
+      type            = "MISCONDUCT"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+  ]
+
+  # 2. Sensitive Information Policy Config: PII Redaction / Masking / Blocking
+  pii_entities = [
+    {
+      type           = "EMAIL"
+      action         = "ANONYMIZE"
+      input_action   = "ANONYMIZE"
+      output_action  = "ANONYMIZE"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "PHONE"
+      action         = "ANONYMIZE"
+      input_action   = "ANONYMIZE"
+      output_action  = "ANONYMIZE"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "US_SOCIAL_SECURITY_NUMBER"
+      action         = "BLOCK"
+      input_action   = "BLOCK"
+      output_action  = "BLOCK"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "CREDIT_DEBIT_CARD_NUMBER"
+      action         = "BLOCK"
+      input_action   = "BLOCK"
+      output_action  = "BLOCK"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "US_BANK_ACCOUNT_NUMBER"
+      action         = "BLOCK"
+      input_action   = "BLOCK"
+      output_action  = "BLOCK"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "AWS_ACCESS_KEY"
+      action         = "BLOCK"
+      input_action   = "BLOCK"
+      output_action  = "BLOCK"
+      input_enabled  = true
+      output_enabled = true
+    },
+    {
+      type           = "PASSWORD"
+      action         = "BLOCK"
+      input_action   = "BLOCK"
+      output_action  = "BLOCK"
+      input_enabled  = true
+      output_enabled = true
+    }
+  ]
+
+  # 3. Topic Policy Config: Denied Out-of-Scope Enterprise Topics
+  denied_topics = [
+    {
+      name       = "MaliciousCyberExploitation"
+      definition = "Requests providing active vulnerability exploit code, malware authoring, or unauthorized penetration instructions."
+      examples = [
+        "Write a buffer overflow exploit for CVE-2024-1234",
+        "Generate a reverse shell payload to bypass firewalls"
+      ]
+    },
+    {
+      name       = "UnauthorizedLegalAdvice"
+      definition = "Requests asking the model to provide authoritative legal contracts, formal legal counsel, or binding legal opinions."
+      examples = [
+        "Provide binding legal advice for my lawsuit",
+        "Draft a legally certified power of attorney"
+      ]
+    }
+  ]
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-guardrail"
+  }
 }
 
 # 7. Ingestion Plane: S3, EventBridge, SQS DLQ, Step Functions, Titan Embeddings v2
