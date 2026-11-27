@@ -1,3 +1,12 @@
+# --- Resolve latest available Aurora PostgreSQL 16.x version ---
+data "aws_rds_engine_version" "aurora_pg16" {
+  count = var.engine_version == null ? 1 : 0
+
+  engine  = "aurora-postgresql"
+  version = "16"
+  latest  = true
+}
+
 # --- DB Subnet Group ---
 resource "aws_db_subnet_group" "aurora" {
   name        = "${var.project_name}-${var.environment}-aurora-subnets"
@@ -9,17 +18,11 @@ resource "aws_db_subnet_group" "aurora" {
   }
 }
 
-# --- DB Cluster Parameter Group (enabling pgvector) ---
+# --- DB Cluster Parameter Group ---
 resource "aws_rds_cluster_parameter_group" "aurora" {
   name        = "${var.project_name}-${var.environment}-aurora-pg16"
   family      = "aurora-postgresql16"
-  description = "Cluster parameter group for Aurora PostgreSQL 16 with pgvector extension enabled"
-
-  parameter {
-    name         = "shared_preload_libraries"
-    value        = "vector"
-    apply_method = "pending-reboot"
-  }
+  description = "Cluster parameter group for Aurora PostgreSQL 16 (pgvector enabled via CREATE EXTENSION vector)"
 
   parameter {
     name  = "rds.force_ssl"
@@ -66,7 +69,7 @@ resource "aws_rds_cluster" "postgresql" {
   cluster_identifier              = "${var.project_name}-${var.environment}-aurora"
   engine                          = "aurora-postgresql"
   engine_mode                     = "provisioned"
-  engine_version                  = "16.1"
+  engine_version                  = coalesce(var.engine_version, try(data.aws_rds_engine_version.aurora_pg16[0].version, null))
   database_name                   = var.database_name
   master_username                 = "postgres"
   master_password                 = random_password.db_master_password.result

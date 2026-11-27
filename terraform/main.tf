@@ -27,9 +27,6 @@ module "vpc" {
   }
 }
 
-# --- Security Groups (Strict Principle of Least Privilege via modules/security-groups) ---
-
-# 1. Lambda Workload Security Group
 module "lambda_sg" {
   source = "./modules/security-groups"
 
@@ -65,7 +62,6 @@ module "lambda_sg" {
   }
 }
 
-# 2. Aurora PostgreSQL Security Group
 module "aurora_sg" {
   source = "./modules/security-groups"
 
@@ -98,7 +94,6 @@ module "aurora_sg" {
   }
 }
 
-# 3. ElastiCache Redis Security Group
 module "elasticache_sg" {
   source = "./modules/security-groups"
 
@@ -131,7 +126,6 @@ module "elasticache_sg" {
   }
 }
 
-# 4. VPC Endpoints Security Group
 module "vpc_endpoints_sg" {
   source = "./modules/security-groups"
 
@@ -163,7 +157,6 @@ module "vpc_endpoints_sg" {
     Name = "${var.project_name}-${var.environment}-vpce-sg"
   }
 }
-
 
 # 1. Security & Encryption Subsystem (KMS CMKs, Least-Privilege Security Groups)
 module "storage_kms" {
@@ -1118,38 +1111,6 @@ resource "aws_lambda_permission" "apigw" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.rag_api.execution_arn}/*/*"
 }
-
-# module "query_api" {
-#   source                              = "./modules/query_api"
-#   project_name                        = var.project_name
-#   environment                         = var.environment
-#   vpc_id                              = module.vpc.vpc_id
-#   private_subnet_ids                  = module.vpc.private_subnet_ids
-#   lambda_security_group_id            = module.security.lambda_security_group_id
-#   storage_kms_key_arn                 = module.security.storage_kms_key_arn
-#   compute_kms_key_arn                 = module.security.compute_kms_key_arn
-#   aurora_secret_arn                   = module.aurora_pgvector.secret_arn
-#   aurora_cluster_endpoint             = module.aurora_pgvector.cluster_endpoint
-#   database_name                       = module.aurora_pgvector.database_name
-#   redis_endpoint                      = module.elasticache_redis.endpoint
-#   redis_port                          = module.elasticache_redis.port
-#   bedrock_embedding_model_id          = var.bedrock_embedding_model_id
-#   bedrock_llm_model_id                = var.bedrock_llm_model_id
-#   guardrail_id                        = module.bedrock_guardrails.guardrail_id
-#   guardrail_version                   = module.bedrock_guardrails.guardrail_version
-#   semantic_cache_ttl_seconds          = var.semantic_cache_ttl_seconds
-#   semantic_cache_similarity_threshold = var.semantic_cache_similarity_threshold
-# }
-
-# 9. Observability & Monitoring: CloudWatch Dashboard & Alarms
-# module "monitoring" {
-#   source             = "./modules/monitoring"
-#   project_name       = var.project_name
-#   environment        = var.environment
-#   ingestion_dlq_name = split(":", module.ingestion_pipeline.ingestion_dlq_arn)[5]
-#   query_lambda_name  = module.query_api.query_lambda_name
-#   step_function_arn  = module.ingestion_pipeline.step_function_arn
-# }
 
 # --- CloudWatch Metric Alarm: DLQ Messages > 0 ---
 module "ingestion_dlq_alarm" {

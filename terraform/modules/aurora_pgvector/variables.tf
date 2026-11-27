@@ -36,3 +36,9 @@ variable "max_capacity" {
   type    = number
   default = 4.0
 }
+
+variable "engine_version" {
+  type        = string
+  default     = null
+  description = "Optional Aurora PostgreSQL 16.x engine version override; defaults to latest supported 16.x in region"
+}
