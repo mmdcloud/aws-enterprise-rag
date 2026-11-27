@@ -241,12 +241,25 @@ module "vpc_endpoints_sg" {
 
 # 2. VPC Network Subsystem (Multi-AZ, Isolated Database Tier, VPC Flow Logs)
 module "vpc" {
-  source             = "./modules/vpc"
-  project_name       = var.project_name
-  environment        = var.environment
-  vpc_cidr           = var.vpc_cidr
-  enable_nat_gateway = var.enable_nat_gateway
-  kms_key_arn        = module.compute_logs_kms.arn
+  source                  = "./modules/vpc"
+  vpc_name                = "vpc"
+  vpc_cidr                = "10.0.0.0/16"
+  azs                     = var.azs
+  public_subnets          = var.public_subnets
+  private_subnets         = var.private_subnets
+  database_subnets        = var.database_subnets
+  enable_dns_hostnames    = true
+  enable_dns_support      = true
+  create_igw              = true
+  map_public_ip_on_launch = true
+  enable_nat_gateway      = true
+  single_nat_gateway      = false
+  one_nat_gateway_per_az  = true
+  tags = {
+    Name      = "vpc"
+    ManagedBy = "terraform"
+    Project   = "text-to-sql"
+  }
 }
 
 # 3. VPC Endpoints (AWS PrivateLink: Zero Public Internet Exposure)
@@ -306,7 +319,7 @@ module "aurora_pgvector" {
   project_name             = var.project_name
   environment              = var.environment
   vpc_id                   = module.vpc.vpc_id
-  database_subnet_ids      = module.vpc.database_subnet_ids
+  database_subnet_ids      = module.vpc.database_subnets
   aurora_security_group_id = module.aurora_sg.id
   kms_key_arn              = module.storage_kms.arn
   database_name            = var.database_name
@@ -667,7 +680,7 @@ module "ingestion_lambda" {
   permissions             = []
 
   vpc_config = {
-    subnet_ids         = toset(module.vpc.private_subnet_ids)
+    subnet_ids         = toset(module.vpc.private_subnets)
     security_group_ids = toset([module.lambda_sg.id])
   }
 
@@ -1010,7 +1023,7 @@ module "query_lambda" {
   permissions             = []
 
   vpc_config = {
-    subnet_ids         = toset(module.vpc.private_subnet_ids)
+    subnet_ids         = toset(module.vpc.private_subnets)
     security_group_ids = toset([module.lambda_sg.id])
   }
 

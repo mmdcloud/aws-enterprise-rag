@@ -16,6 +16,26 @@ variable "project_name" {
   default     = "ent-rag"
 }
 
+variable "public_subnets" {
+  type        = list(string)
+  description = "Public Subnet CIDR values"
+}
+
+variable "private_subnets" {
+  type        = list(string)
+  description = "Private Subnet CIDR values"
+}
+
+variable "database_subnets" {
+  type        = list(string)
+  description = "Database Subnet CIDR values"
+}
+
+variable "azs" {
+  type        = list(string)
+  description = "Availability Zones"
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
   type        = string
