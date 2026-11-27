@@ -38,12 +38,8 @@ variable "content_tier" {
 variable "pii_entities" {
   description = "List of PII entities to filter"
   type = list(object({
-    type           = string
-    action         = string
-    input_action   = string
-    output_action  = string
-    input_enabled  = bool
-    output_enabled = bool
+    type   = string
+    action = string
   }))
   default = []
 }
@@ -51,14 +47,10 @@ variable "pii_entities" {
 variable "regex_patterns" {
   description = "List of regex patterns to match"
   type = list(object({
-    name           = string
-    description    = string
-    pattern        = string
-    action         = string
-    input_action   = string
-    output_action  = string
-    input_enabled  = bool
-    output_enabled = bool
+    name        = string
+    description = string
+    pattern     = string
+    action      = string
   }))
   default = []
 }

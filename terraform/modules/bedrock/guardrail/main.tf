@@ -16,10 +16,6 @@ resource "aws_bedrock_guardrail" "this" {
           type            = filters_config.value.type
         }
       }
-      
-      tier_config {
-        tier_name = var.content_tier
-      }
     }
   }
 
@@ -30,26 +26,18 @@ resource "aws_bedrock_guardrail" "this" {
       dynamic "pii_entities_config" {
         for_each = var.pii_entities
         content {
-          action         = pii_entities_config.value.action
-          input_action   = pii_entities_config.value.input_action
-          output_action  = pii_entities_config.value.output_action
-          input_enabled  = pii_entities_config.value.input_enabled
-          output_enabled = pii_entities_config.value.output_enabled
-          type           = pii_entities_config.value.type
+          action = pii_entities_config.value.action
+          type   = pii_entities_config.value.type
         }
       }
 
       dynamic "regexes_config" {
         for_each = var.regex_patterns
         content {
-          action         = regexes_config.value.action
-          input_action   = regexes_config.value.input_action
-          output_action  = regexes_config.value.output_action
-          input_enabled  = regexes_config.value.input_enabled
-          output_enabled = regexes_config.value.output_enabled
-          description    = regexes_config.value.description
-          name           = regexes_config.value.name
-          pattern        = regexes_config.value.pattern
+          action      = regexes_config.value.action
+          description = regexes_config.value.description
+          name        = regexes_config.value.name
+          pattern     = regexes_config.value.pattern
         }
       }
     }
@@ -68,10 +56,6 @@ resource "aws_bedrock_guardrail" "this" {
           definition = topics_config.value.definition
         }
       }
-      
-      tier_config {
-        tier_name = var.topic_tier
-      }
     }
   }
 
@@ -85,7 +69,7 @@ resource "aws_bedrock_guardrail" "this" {
           type = managed_word_lists_config.value
         }
       }
-      
+
       dynamic "words_config" {
         for_each = var.custom_blocked_words
         content {

@@ -4,94 +4,27 @@
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
-# 1. Security & Encryption Subsystem (KMS CMKs, Least-Privilege Security Groups)
-module "storage_kms" {
-  source = "./modules/kms"
-
-  name                    = "${var.project_name}-${var.environment}-storage"
-  description             = "KMS CMK for Enterprise RAG storage encryption (Aurora, S3, ElastiCache, Secrets)"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "EnableIAMUserPermissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowCloudWatchAndS3ServiceAccess"
-        Effect = "Allow"
-        Principal = {
-          Service = [
-            "s3.amazonaws.com",
-            "rds.amazonaws.com",
-            "secretsmanager.amazonaws.com",
-            "logs.${data.aws_region.current.name}.amazonaws.com"
-          ]
-        }
-        Action = [
-          "kms:Encrypt*",
-          "kms:Decrypt*",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:Describe*"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-# --- KMS CMK for Compute & Logs (Lambda, SQS, CloudWatch) ---
-module "compute_logs_kms" {
-  source = "./modules/kms"
-
-  name                    = "${var.project_name}-${var.environment}-compute"
-  description             = "KMS CMK for Enterprise RAG compute, messaging, and logs encryption"
-  deletion_window_in_days = 30
-  enable_key_rotation     = true
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "EnableIAMUserPermissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowLogsAndComputeServices"
-        Effect = "Allow"
-        Principal = {
-          Service = [
-            "logs.${data.aws_region.current.name}.amazonaws.com",
-            "lambda.amazonaws.com",
-            "sqs.amazonaws.com",
-            "states.${data.aws_region.current.name}.amazonaws.com"
-          ]
-        }
-        Action = [
-          "kms:Encrypt*",
-          "kms:Decrypt*",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:Describe*"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+# VPC Network Subsystem (Multi-AZ, Isolated Database Tier, VPC Flow Logs)
+module "vpc" {
+  source                  = "./modules/vpc"
+  vpc_name                = "vpc"
+  vpc_cidr                = var.vpc_cidr
+  azs                     = var.azs
+  public_subnets          = var.public_subnets
+  private_subnets         = var.private_subnets
+  database_subnets        = var.database_subnets
+  enable_dns_hostnames    = true
+  enable_dns_support      = true
+  create_igw              = true
+  map_public_ip_on_launch = true
+  enable_nat_gateway      = true
+  single_nat_gateway      = false
+  one_nat_gateway_per_az  = true
+  tags = {
+    Name      = "vpc"
+    ManagedBy = "terraform"
+    Project   = "text-to-sql"
+  }
 }
 
 # --- Security Groups (Strict Principle of Least Privilege via modules/security-groups) ---
@@ -232,35 +165,102 @@ module "vpc_endpoints_sg" {
 }
 
 
+# 1. Security & Encryption Subsystem (KMS CMKs, Least-Privilege Security Groups)
+module "storage_kms" {
+  source = "./modules/kms"
+
+  name                    = "${var.project_name}-${var.environment}-storage"
+  description             = "KMS CMK for Enterprise RAG storage encryption (Aurora, S3, ElastiCache, Secrets)"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableIAMUserPermissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudWatchAndS3ServiceAccess"
+        Effect = "Allow"
+        Principal = {
+          Service = [
+            "s3.amazonaws.com",
+            "rds.amazonaws.com",
+            "secretsmanager.amazonaws.com",
+            "logs.${data.aws_region.current.name}.amazonaws.com"
+          ]
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# --- KMS CMK for Compute & Logs (Lambda, SQS, CloudWatch) ---
+module "compute_logs_kms" {
+  source = "./modules/kms"
+
+  name                    = "${var.project_name}-${var.environment}-compute"
+  description             = "KMS CMK for Enterprise RAG compute, messaging, and logs encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableIAMUserPermissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowLogsAndComputeServices"
+        Effect = "Allow"
+        Principal = {
+          Service = [
+            "logs.${data.aws_region.current.name}.amazonaws.com",
+            "lambda.amazonaws.com",
+            "sqs.amazonaws.com",
+            "states.${data.aws_region.current.name}.amazonaws.com"
+          ]
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # module "security" {
 #   source       = "./modules/security"
 #   project_name = var.project_name
 #   environment  = var.environment
 #   vpc_id       = module.vpc.vpc_id
 # }
-
-# 2. VPC Network Subsystem (Multi-AZ, Isolated Database Tier, VPC Flow Logs)
-module "vpc" {
-  source                  = "./modules/vpc"
-  vpc_name                = "vpc"
-  vpc_cidr                = "10.0.0.0/16"
-  azs                     = var.azs
-  public_subnets          = var.public_subnets
-  private_subnets         = var.private_subnets
-  database_subnets        = var.database_subnets
-  enable_dns_hostnames    = true
-  enable_dns_support      = true
-  create_igw              = true
-  map_public_ip_on_launch = true
-  enable_nat_gateway      = true
-  single_nat_gateway      = false
-  one_nat_gateway_per_az  = true
-  tags = {
-    Name      = "vpc"
-    ManagedBy = "terraform"
-    Project   = "text-to-sql"
-  }
-}
 
 # 3. VPC Endpoints (AWS PrivateLink: Zero Public Internet Exposure)
 locals {
@@ -279,11 +279,11 @@ locals {
 
 resource "aws_vpc_endpoint" "interface" {
   for_each            = local.interface_services
-  vpc_id              = var.vpc_id
+  vpc_id              = module.vpc.vpc_id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.${each.value}"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.private_subnet_ids
-  security_group_ids  = [var.vpc_endpoints_security_group_id]
+  subnet_ids          = module.vpc.private_subnets
+  security_group_ids  = [module.vpc_endpoints_sg.id]
   private_dns_enabled = true
 
   tags = {
@@ -293,10 +293,10 @@ resource "aws_vpc_endpoint" "interface" {
 
 # --- S3 Gateway Endpoint (Zero Cost, High Throughput) ---
 resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = var.vpc_id
+  vpc_id            = module.vpc.vpc_id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [var.private_route_table_id]
+  route_table_ids   = module.vpc.private_route_table_ids
 
   tags = {
     Name = "${var.project_name}-${var.environment}-vpce-s3-gateway"
@@ -333,7 +333,7 @@ module "elasticache_redis" {
   project_name            = var.project_name
   environment             = var.environment
   vpc_id                  = module.vpc.vpc_id
-  database_subnet_ids     = module.vpc.database_subnet_ids
+  database_subnet_ids     = module.vpc.database_subnets
   redis_security_group_id = module.elasticache_sg.id
   kms_key_arn             = module.storage_kms.arn
 }
@@ -384,60 +384,32 @@ module "bedrock_guardrails" {
   # 2. Sensitive Information Policy Config: PII Redaction / Masking / Blocking
   pii_entities = [
     {
-      type           = "EMAIL"
-      action         = "ANONYMIZE"
-      input_action   = "ANONYMIZE"
-      output_action  = "ANONYMIZE"
-      input_enabled  = true
-      output_enabled = true
+      type   = "EMAIL"
+      action = "ANONYMIZE"
     },
     {
-      type           = "PHONE"
-      action         = "ANONYMIZE"
-      input_action   = "ANONYMIZE"
-      output_action  = "ANONYMIZE"
-      input_enabled  = true
-      output_enabled = true
+      type   = "PHONE"
+      action = "ANONYMIZE"
     },
     {
-      type           = "US_SOCIAL_SECURITY_NUMBER"
-      action         = "BLOCK"
-      input_action   = "BLOCK"
-      output_action  = "BLOCK"
-      input_enabled  = true
-      output_enabled = true
+      type   = "US_SOCIAL_SECURITY_NUMBER"
+      action = "BLOCK"
     },
     {
-      type           = "CREDIT_DEBIT_CARD_NUMBER"
-      action         = "BLOCK"
-      input_action   = "BLOCK"
-      output_action  = "BLOCK"
-      input_enabled  = true
-      output_enabled = true
+      type   = "CREDIT_DEBIT_CARD_NUMBER"
+      action = "BLOCK"
     },
     {
-      type           = "US_BANK_ACCOUNT_NUMBER"
-      action         = "BLOCK"
-      input_action   = "BLOCK"
-      output_action  = "BLOCK"
-      input_enabled  = true
-      output_enabled = true
+      type   = "US_BANK_ACCOUNT_NUMBER"
+      action = "BLOCK"
     },
     {
-      type           = "AWS_ACCESS_KEY"
-      action         = "BLOCK"
-      input_action   = "BLOCK"
-      output_action  = "BLOCK"
-      input_enabled  = true
-      output_enabled = true
+      type   = "AWS_ACCESS_KEY"
+      action = "BLOCK"
     },
     {
-      type           = "PASSWORD"
-      action         = "BLOCK"
-      input_action   = "BLOCK"
-      output_action  = "BLOCK"
-      input_enabled  = true
-      output_enabled = true
+      type   = "PASSWORD"
+      action = "BLOCK"
     }
   ]
 
@@ -1069,7 +1041,7 @@ resource "aws_apigatewayv2_api" "rag_api" {
 resource "aws_apigatewayv2_integration" "lambda" {
   api_id                 = aws_apigatewayv2_api.rag_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.query.invoke_arn
+  integration_uri        = module.query_lambda.invoke_arn
   integration_method     = "POST"
   payload_format_version = "2.0"
 }
@@ -1100,7 +1072,7 @@ resource "aws_apigatewayv2_route" "metrics" {
 resource "aws_cloudwatch_log_group" "api_logs" {
   name              = "/aws/apigateway/${var.project_name}-${var.environment}-api"
   retention_in_days = 90
-  kms_key_id        = var.compute_kms_key_arn
+  kms_key_id        = module.compute_logs_kms.arn
 
   tags = {
     Name = "${var.project_name}-${var.environment}-api-logs"
@@ -1142,7 +1114,7 @@ resource "aws_apigatewayv2_stage" "prod" {
 resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.query.function_name
+  function_name = module.query_lambda.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.rag_api.execution_arn}/*/*"
 }
@@ -1196,7 +1168,7 @@ module "ingestion_dlq_alarm" {
   ok_actions          = []
 
   dimensions = {
-    QueueName = split(":", module.ingestion_pipeline.ingestion_dlq_arn)[5]
+    QueueName = module.ingestion_dlq.name
   }
 }
 
@@ -1217,7 +1189,7 @@ module "query_errors_alarm" {
   ok_actions          = []
 
   dimensions = {
-    FunctionName = module.query_api.query_lambda_name
+    FunctionName = module.query_lambda.function_name
   }
 }
 
@@ -1289,7 +1261,7 @@ module "rag_dashboard" {
         height = 6
         properties = {
           metrics = [
-            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", split(":", module.ingestion_pipeline.ingestion_dlq_arn)[5], { stat = "Maximum", color = "#d62728" }]
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", module.ingestion_dlq.name, { stat = "Maximum", color = "#d62728" }]
           ]
           period = 60
           region = data.aws_region.current.name
